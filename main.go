@@ -8,8 +8,7 @@ import (
 )
 
 func main() {
-	fmt.Printf("Hello, World\n")
-	binary, err := os.Open("./binary")
+	binary, err := os.Open("./play")
 
 	if err != nil {
 		fmt.Printf("Could not open binary to parse: %v!\n", err)
@@ -24,6 +23,5 @@ func main() {
 		fmt.Printf("Could not create a Bati: %v\n", err)
 	}
 
-	_, _ = b.DecodeAt(0x4b45d8)
-
+	_, _ = b.DecodeAt(0x4b5da0)
 }
