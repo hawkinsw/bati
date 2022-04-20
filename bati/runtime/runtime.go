@@ -10,7 +10,7 @@ func NewBaseOffset(base uint64) *BaseOffset {
 	return &BaseOffset{base}
 }
 
-func (bfst *BaseOffset) NameOff(nameOff uint32) uint64 {
+func (bfst *BaseOffset) StringOff(nameOff uint32) uint64 {
 	return bfst.base + uint64(nameOff)
 }
 
@@ -22,7 +22,7 @@ type Name struct {
 	storage *byte
 }
 
-func NewName(storage *byte) *Name {
+func NewString(storage *byte) *Name {
 	return &Name{storage}
 }
 

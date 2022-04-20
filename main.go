@@ -94,7 +94,7 @@ func main() {
 		decodedType, err = b.DecodeTypeAt(address)
 	case Itab:
 		fmt.Printf("We are decoding an Itab\n")
-		decodedItab, err = b.DecodeInterfaceTypeAt(address)
+		decodedItab, err = b.DecodeItabAt(address)
 	}
 
 	if err != nil {

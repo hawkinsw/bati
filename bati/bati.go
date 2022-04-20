@@ -31,6 +31,11 @@ type BatiType struct {
 	PtrToThisType  *BatiType
 }
 
+type BatiMethod struct {
+	Name    string
+	Address uint64
+}
+
 type BatiFace struct {
 	tipe    BatiType
 	pkgpath string
@@ -78,6 +83,56 @@ func (b BatiFace) String() string {
 }
 func (b Bati) String() string {
 	return "Bati Stringify!"
+}
+
+func (b *BatiDecoder) DecodeImethodSliceAt(base uint64) ([]BatiMethod, error) {
+
+	rodataAddress, err := b.findSectionAddress(".rodata")
+	if err != nil {
+		return nil, err
+	}
+	methods := make([]BatiMethod, 0)
+
+	// This is a slice!
+	// In other words, it should be a pointer to the backing data (an array), then
+	// two uint64_t (the capacity and the size).
+
+	containingSection, err := b.findSectionForAddress(base)
+	if err != nil {
+		return nil, err
+	}
+	containingSectionData, _ := containingSection.Data()
+	containingOffset := uint64(base) - containingSection.Addr
+
+	addressOfImethodSliceBacking := binary.LittleEndian.Uint64(containingSectionData[containingOffset:(containingOffset + 8)])
+
+	if addressOfImethodSliceBacking == 0 {
+		if b.debug {
+			fmt.Printf("No methods found!\n")
+		}
+		return methods, nil
+	}
+
+	numberOfImethods := binary.LittleEndian.Uint64(containingSectionData[containingOffset+8 : (containingOffset + 8 + 8)])
+
+	if b.debug {
+		fmt.Printf("Methods are at 0x%x!\n", addressOfImethodSliceBacking)
+		fmt.Printf("There are %v methods available!", numberOfImethods)
+	}
+
+	containingSection, err = b.findSectionForAddress(addressOfImethodSliceBacking)
+	containingSectionData, err = containingSection.Data()
+	for i := uint64(0); i < numberOfImethods; i++ {
+		nameOffAddress := uint64(i*8) + addressOfImethodSliceBacking
+		containingOffset := nameOffAddress - containingSection.Addr
+		nameOff := binary.LittleEndian.Uint32((containingSectionData[containingOffset : containingOffset+4]))
+		methodName, err := b.stringFromStringOffset(rodataAddress, nameOff)
+		if err != nil && b.debug {
+			fmt.Printf("method name: %v\n", methodName)
+		}
+	}
+
+	return methods, nil
 }
 
 func (b *BatiDecoder) DecodeTypeAt(base uint64) (BatiType, error) {
@@ -153,14 +208,8 @@ func (b *BatiDecoder) DecodeTypeAt(base uint64) (BatiType, error) {
 	interfaceOffsetIterator += 4
 
 	// Convert from a "name offset" to an actual string
-	interfaceNameAddress := moduleOffset.NameOff(interfaceTypeName)
-	sectionForInterfaceTypeName, err := b.findSectionForAddress(uint64(interfaceNameAddress))
+	constructedBatiType.Name, err = b.stringFromStringOffset(rodataAddress, interfaceTypeName)
 	if err == nil {
-		sectionForInterfaceTypeNameData, _ := sectionForInterfaceTypeName.Data()
-		interfaceTypeNameSectionOffset := interfaceNameAddress - sectionForInterfaceTypeName.Addr
-		interfaceTypeNameName := runtime.NewName(&sectionForInterfaceTypeNameData[interfaceTypeNameSectionOffset])
-		constructedBatiType.Name = interfaceTypeNameName.ToString()
-
 		if b.debug {
 			fmt.Printf("Interface name: %v\n", constructedBatiType.Name)
 		}
@@ -194,17 +243,51 @@ func (b *BatiDecoder) DecodeTypeAt(base uint64) (BatiType, error) {
 	return constructedBatiType, nil
 }
 
-func (b *BatiDecoder) DecodeInterfaceTypeAt(base uint64) (Bati, error) {
+func (b *BatiDecoder) stringFromStringOffset(base uint64, offset uint32) (string, error) {
+	// Convert from an "offset" to an actual string
+	moduleOffset := runtime.NewBaseOffset(base)
+	stringAddress := moduleOffset.StringOff(offset)
+	return b.stringFromStringAddress(stringAddress)
+}
 
-	rodataAddress, err := b.findSectionAddress(".rodata")
+func (b *BatiDecoder) stringFromStringAddress(string_address uint64) (string, error) {
+	sectionForStringAddress, err := b.findSectionForAddress(uint64(string_address))
+	if err == nil {
+		sectionForStringData, _ := sectionForStringAddress.Data()
+		sectionForStringDataOffset := string_address - sectionForStringAddress.Addr
+		stringString := runtime.NewString(&sectionForStringData[sectionForStringDataOffset])
+
+		if b.debug {
+			fmt.Printf("stringFromStringAddress result: %v\n", stringString.ToString())
+		}
+		return stringString.ToString(), nil
+	}
+
+	return "", err
+}
+
+func (b *BatiDecoder) DecodeItabAt(base uint64) (Bati, error) {
+	constructedBati := Bati{base, 0, nil, nil}
+
+	iface, err := b.DecodeInterfaceTypeAt(base)
+
 	if err != nil {
+		fmt.Printf("Could not parse an interface type at the base of a Itab\n")
 		return Bati{base, 0, nil, nil}, err
 	}
-	constructedBati := Bati{base, rodataAddress, &BatiFace{}, &BatiType{}}
+	constructedBati.iface = &iface
+
+	return constructedBati, nil
+
+}
+
+// Base here is actually a pointer to the interface.
+func (b *BatiDecoder) DecodeInterfaceTypeAt(base uint64) (BatiFace, error) {
+	constructedBatiFace := BatiFace{}
 
 	containingSection, err := b.findSectionForAddress(base)
 	if err != nil {
-		return Bati{base, 0, nil, nil}, err
+		return BatiFace{}, err
 	}
 	containingSectionData, _ := containingSection.Data()
 	containingOffset := base - containingSection.Addr
@@ -214,12 +297,28 @@ func (b *BatiDecoder) DecodeInterfaceTypeAt(base uint64) (Bati, error) {
 		fmt.Printf("Address of the Interface: %x\n", addressOfInterface)
 	}
 
-	constructedBati.iface.tipe, err = b.DecodeTypeAt(uint64(addressOfInterface))
+	sectionContainingInterface, err := b.findSectionForAddress(addressOfInterface)
+	sectionContainingInterfaceData, err := sectionContainingInterface.Data()
+	sectionContainingInterfaceOffset := addressOfInterface - sectionContainingInterface.Addr
+
+	addressOfInterfacePkgPathNameName := addressOfInterface + SIZEOF_TYPE
+	addressOfInterfaceIMethodSlice := addressOfInterface + SIZEOF_TYPE + 8
+
+	constructedBatiFace.tipe, err = b.DecodeTypeAt(uint64(addressOfInterface))
 	if err != nil {
-		return constructedBati, err
+		return constructedBatiFace, err
 	}
 
-	return constructedBati, nil
+	sectionContainingInterfaceOffset = addressOfInterfacePkgPathNameName - sectionContainingInterface.Addr
+	pkgPathNameAddress := binary.LittleEndian.Uint64(sectionContainingInterfaceData[sectionContainingInterfaceOffset:(sectionContainingInterfaceOffset + 8)])
+	pkgName, err := b.stringFromStringAddress(pkgPathNameAddress)
+	if err == nil {
+		constructedBatiFace.pkgpath = pkgName
+	}
+
+	_, err = b.DecodeImethodSliceAt(addressOfInterfaceIMethodSlice)
+
+	return constructedBatiFace, nil
 }
 
 /*
