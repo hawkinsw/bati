@@ -14,6 +14,8 @@ type BatiDecoder struct {
 	debug     bool
 }
 
+const SIZEOF_TYPE uint64 = uint64(48)
+
 type BatiType struct {
 	Size           uint64
 	PtrData        uint64
@@ -67,77 +69,67 @@ func NewBati(source io.Reader, debug bool) (*BatiDecoder, error) {
 	return &BatiDecoder{parser, debug}, nil
 }
 
-func (b *BatiDecoder) DecodeAt(base uint64) (Bati, error) {
+func (b BatiType) String() string {
+	return "Bati Stringify!"
+}
+func (b BatiFace) String() string {
+	return "BatiFace Stringify!"
+}
+
+func (b *BatiDecoder) DecodeTypeAt(base uint64) (BatiType, error) {
+	constructedBatiType := BatiType{}
 
 	rodataAddress, err := b.findSectionAddress(".rodata")
 	if err != nil {
-		return Bati{base, 0, nil, nil}, err
+		return constructedBatiType, err
 	}
-	constructedBati := Bati{base, rodataAddress, &BatiFace{}, &BatiType{}}
 	moduleOffset := runtime.NewBaseOffset(rodataAddress)
-
-	sizeof_type := uint64(48)
-	//sizeof_name := uint64(8)
 
 	containingSection, err := b.findSectionForAddress(base)
 	if err != nil {
-		return Bati{base, 0, nil, nil}, err
+		return constructedBatiType, err
 	}
 	containingSectionData, _ := containingSection.Data()
-	containingOffset := base - containingSection.Addr
-
-	addressOfInterface := binary.LittleEndian.Uint32(containingSectionData[containingOffset:(containingOffset + 4)])
-	if b.debug {
-		fmt.Printf("Address of the Interface: %x\n", addressOfInterface)
-	}
-
-	// Find (and configure) everything that we need to look at the itab's interface.
-	containingSection, err = b.findSectionForAddress(uint64(addressOfInterface))
-	if err != nil {
-		return Bati{base, 0, nil, nil}, err
-	}
-	containingSectionData, _ = containingSection.Data()
-	containingOffset = uint64(addressOfInterface) - containingSection.Addr
+	containingOffset := uint64(base) - containingSection.Addr
 
 	interfaceTypeTypeOffset := containingOffset
-	interfaceTypePkgPathOffset := interfaceTypeTypeOffset + sizeof_type
 
 	//interfaceIMethodOffset := interfaceTypeTypeOffset + sizeof_type + sizeof_name
 
 	interfaceOffsetIterator := uint64(0)
 	// These are the fields of the _type as they exist in the binary (48 total bytes).
 	// 1: size (8 bytes)
-	constructedBati.iface.tipe.Size = binary.LittleEndian.Uint64(containingSectionData[interfaceTypeTypeOffset:(interfaceTypeTypeOffset + 8)])
+	constructedBatiType.Size = binary.LittleEndian.Uint64(containingSectionData[interfaceTypeTypeOffset:(interfaceTypeTypeOffset + 8)])
 	interfaceOffsetIterator += 8
 	// 2: ptrdata (8 bytes)
-	constructedBati.iface.tipe.PtrData = binary.LittleEndian.Uint64(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 8)])
+	constructedBatiType.PtrData = binary.LittleEndian.Uint64(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 8)])
 	interfaceOffsetIterator += 8
 	// 3: hash (4 bytes)
-	constructedBati.iface.tipe.Hash = uint32(binary.LittleEndian.Uint32(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 4)]))
+	constructedBatiType.Hash = uint32(binary.LittleEndian.Uint32(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 4)]))
 	interfaceOffsetIterator += 4
 
 	// 4: tflag (1 byte)
-	constructedBati.iface.tipe.Tflag = byte(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator)])
+	constructedBatiType.Tflag = byte(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator)])
 	interfaceOffsetIterator += 1
 
 	// 5: align (1 byte)
-	constructedBati.iface.tipe.Align = byte(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator)])
+	constructedBatiType.Align = byte(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator)])
 	interfaceOffsetIterator += 1
 
 	// 6: fieldAlign (1 byte)
-	constructedBati.iface.tipe.FieldAlign = byte(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator)])
+	constructedBatiType.FieldAlign = byte(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator)])
 	interfaceOffsetIterator += 1
 
 	// 7: kind (1 byte)
-	constructedBati.iface.tipe.Kind = byte(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator)])
+	constructedBatiType.Kind = byte(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator)])
 	interfaceOffsetIterator += 1
 
 	// 8: comparison function (8 bytes)
-	constructedBati.iface.tipe.ComparisonFunc = binary.LittleEndian.Uint64(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 8)])
+	constructedBatiType.ComparisonFunc = binary.LittleEndian.Uint64(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 8)])
 	interfaceOffsetIterator += 8
 
 	// 9: gcdata (8 bytes)
-	constructedBati.iface.tipe.GcData = binary.LittleEndian.Uint64(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 8)])
+	constructedBatiType.GcData = binary.LittleEndian.Uint64(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 8)])
 	interfaceOffsetIterator += 8
 
 	// 10: name (4 bytes)
@@ -150,34 +142,47 @@ func (b *BatiDecoder) DecodeAt(base uint64) (Bati, error) {
 	sectionForInterfaceTypeNameData, _ := sectionForInterfaceTypeName.Data()
 	interfaceTypeNameSectionOffset := interfaceNameAddress - sectionForInterfaceTypeName.Addr
 	interfaceTypeNameName := runtime.NewName(&sectionForInterfaceTypeNameData[interfaceTypeNameSectionOffset])
-	constructedBati.iface.tipe.Name = interfaceTypeNameName.ToString()
+	constructedBatiType.Name = interfaceTypeNameName.ToString()
 
 	if b.debug {
-		fmt.Printf("Interface name: %v\n", constructedBati.iface.tipe.Name)
+		fmt.Printf("Interface name: %v\n", constructedBatiType.Name)
 	}
 
 	// 11: ptrToThis (4 bytes)
-	constructedBati.iface.tipe.PtrToThisType = binary.LittleEndian.Uint32(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 4)])
+	constructedBatiType.PtrToThisType = binary.LittleEndian.Uint32(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 4)])
 	interfaceOffsetIterator += 4
 
-	if interfaceOffsetIterator != sizeof_type {
-		fmt.Printf("Error: Could not parse the interface's _type field.\n")
+	if interfaceOffsetIterator != SIZEOF_TYPE {
+		return BatiType{}, fmt.Errorf("Could not parse the _type field at 0x%x\n", base)
 	}
+	return constructedBatiType, nil
 
-	// Next, there is a 8-byte pointer to a _runtime_ string that holds the package's path!
-	pkgNamePointer := binary.LittleEndian.Uint64(containingSectionData[interfaceTypePkgPathOffset:(interfaceTypePkgPathOffset + 8)])
-	sectionForPkgNamePointer, _ := b.findSectionForAddress(uint64(pkgNamePointer))
-	sectionForPkgNamePointerData, _ := sectionForPkgNamePointer.Data()
-	pkgNameDataOffset := uint64(pkgNamePointer) - sectionForPkgNamePointer.Addr
-	pkgNameName := runtime.NewName(&sectionForPkgNamePointerData[pkgNameDataOffset])
-	pkgNameString := pkgNameName.ToString()
+}
 
+func (b *BatiDecoder) DecodeInterfaceTypeAt(base uint64) (Bati, error) {
+
+	rodataAddress, err := b.findSectionAddress(".rodata")
+	if err != nil {
+		return Bati{base, 0, nil, nil}, err
+	}
+	constructedBati := Bati{base, rodataAddress, &BatiFace{}, &BatiType{}}
+
+	containingSection, err := b.findSectionForAddress(base)
+	if err != nil {
+		return Bati{base, 0, nil, nil}, err
+	}
+	containingSectionData, _ := containingSection.Data()
+	containingOffset := base - containingSection.Addr
+
+	addressOfInterface := binary.LittleEndian.Uint64(containingSectionData[containingOffset:(containingOffset + 8)])
 	if b.debug {
-		fmt.Printf("Address of the package name for the interface: %x\n", pkgNamePointer)
-		fmt.Printf("pkgname: %v\n", pkgNameString)
+		fmt.Printf("Address of the Interface: %x\n", addressOfInterface)
 	}
 
-	// TODO: Make sure that we handle the pointers to the methods!
+	constructedBati.iface.tipe, err = b.DecodeTypeAt(uint64(addressOfInterface))
+	if err != nil {
+		return constructedBati, err
+	}
 
 	return constructedBati, nil
 }
