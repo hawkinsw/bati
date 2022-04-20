@@ -11,6 +11,7 @@ import (
 
 type BatiDecoder struct {
 	sourceElf *elf.Parser
+	typeTable map[uint64]*BatiType
 	debug     bool
 }
 
@@ -27,7 +28,7 @@ type BatiType struct {
 	ComparisonFunc uint64
 	GcData         uint64
 	Name           string
-	PtrToThisType  uint32
+	PtrToThisType  *BatiType
 }
 
 type BatiFace struct {
@@ -66,7 +67,7 @@ func NewBati(source io.Reader, debug bool) (*BatiDecoder, error) {
 		return nil, err
 	}
 
-	return &BatiDecoder{parser, debug}, nil
+	return &BatiDecoder{parser, make(map[uint64]*BatiType), debug}, nil
 }
 
 func (b BatiType) String() string {
@@ -75,8 +76,23 @@ func (b BatiType) String() string {
 func (b BatiFace) String() string {
 	return "BatiFace Stringify!"
 }
+func (b Bati) String() string {
+	return "Bati Stringify!"
+}
 
 func (b *BatiDecoder) DecodeTypeAt(base uint64) (BatiType, error) {
+
+	/*
+	 * First, check the type table! We may have already done this one!
+	 */
+	if b.typeTable[base] != nil {
+		if b.debug {
+			fmt.Printf("Got type at 0x%x from the cache!\n", base)
+		}
+		return *b.typeTable[base], nil
+	} else if b.debug {
+		fmt.Printf("Could not find 0x%x in cache -- decoding!\n", base)
+	}
 	constructedBatiType := BatiType{}
 
 	rodataAddress, err := b.findSectionAddress(".rodata")
@@ -138,25 +154,44 @@ func (b *BatiDecoder) DecodeTypeAt(base uint64) (BatiType, error) {
 
 	// Convert from a "name offset" to an actual string
 	interfaceNameAddress := moduleOffset.NameOff(interfaceTypeName)
-	sectionForInterfaceTypeName, _ := b.findSectionForAddress(uint64(interfaceNameAddress))
-	sectionForInterfaceTypeNameData, _ := sectionForInterfaceTypeName.Data()
-	interfaceTypeNameSectionOffset := interfaceNameAddress - sectionForInterfaceTypeName.Addr
-	interfaceTypeNameName := runtime.NewName(&sectionForInterfaceTypeNameData[interfaceTypeNameSectionOffset])
-	constructedBatiType.Name = interfaceTypeNameName.ToString()
+	sectionForInterfaceTypeName, err := b.findSectionForAddress(uint64(interfaceNameAddress))
+	if err == nil {
+		sectionForInterfaceTypeNameData, _ := sectionForInterfaceTypeName.Data()
+		interfaceTypeNameSectionOffset := interfaceNameAddress - sectionForInterfaceTypeName.Addr
+		interfaceTypeNameName := runtime.NewName(&sectionForInterfaceTypeNameData[interfaceTypeNameSectionOffset])
+		constructedBatiType.Name = interfaceTypeNameName.ToString()
 
-	if b.debug {
-		fmt.Printf("Interface name: %v\n", constructedBatiType.Name)
+		if b.debug {
+			fmt.Printf("Interface name: %v\n", constructedBatiType.Name)
+		}
 	}
 
 	// 11: ptrToThis (4 bytes)
-	constructedBatiType.PtrToThisType = binary.LittleEndian.Uint32(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 4)])
+	PtrToThisTypeOffset := binary.LittleEndian.Uint32(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 4)])
 	interfaceOffsetIterator += 4
+
+	if PtrToThisTypeOffset != 0 {
+		ptrToThisAddress := moduleOffset.TypeOff(PtrToThisTypeOffset)
+		PtrToThisType, err := b.DecodeTypeAt(ptrToThisAddress)
+
+		if err != nil {
+			fmt.Printf("Warning: Could not decode a type at the type's pointer-to-this offset. Tried at 0x%x.\n", ptrToThisAddress)
+		} else {
+			constructedBatiType.PtrToThisType = &PtrToThisType
+			if b.debug {
+				fmt.Printf("Ptr to this type's name: %s\n", PtrToThisType.Name)
+			}
+		}
+	} else if b.debug {
+		fmt.Printf("Skipping the decode of a ptr-to-this field because it is nil.\n")
+	}
 
 	if interfaceOffsetIterator != SIZEOF_TYPE {
 		return BatiType{}, fmt.Errorf("Could not parse the _type field at 0x%x\n", base)
 	}
-	return constructedBatiType, nil
 
+	b.typeTable[base] = &constructedBatiType
+	return constructedBatiType, nil
 }
 
 func (b *BatiDecoder) DecodeInterfaceTypeAt(base uint64) (Bati, error) {
