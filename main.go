@@ -28,8 +28,16 @@ func main() {
 	decode_itab := flag.Bool("itab", false, "Decode an itab")
 	var decode_choice interface{}
 
-	inputAddress := flag.String("address", "0x0", "The address of a potential _type/itab to investigate")
-	filename := flag.String("filename", "", "The name of the binary to investigate")
+	inputAddress := flag.String(
+		"address",
+		"0x0",
+		"The address of a potential _type/itab to investigate",
+	)
+	filename := flag.String(
+		"filename",
+		"",
+		"The name of the binary to investigate",
+	)
 	flag.Parse()
 
 	if *decode_type && *decode_itab {
@@ -63,7 +71,10 @@ func main() {
 		inputAddressBase = 16
 		*inputAddress = strings.Replace(*inputAddress, "0x", "", 1)
 		if *debug {
-			fmt.Printf("Stripped 0x from the beginning of a hex address; I now have %s\n", *inputAddress)
+			fmt.Printf(
+				"Stripped 0x from the beginning of a hex address; I now have %s\n",
+				*inputAddress,
+			)
 		}
 	}
 
@@ -73,7 +84,12 @@ func main() {
 	}
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Could not parse the given address to investigate (%s): %v\n", *inputAddress, err)
+		fmt.Fprintf(
+			os.Stderr,
+			"Could not parse the given address to investigate (%s): %v\n",
+			*inputAddress,
+			err,
+		)
 		exitStatus = 1
 		return
 	}

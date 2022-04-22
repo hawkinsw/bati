@@ -76,13 +76,27 @@ func NewBati(source io.Reader, debug bool) (*BatiDecoder, error) {
 }
 
 func (b BatiType) String() string {
-	return "Bati Stringify!"
+	result := fmt.Sprintf("Name: %v\n", b.Name)
+	result += fmt.Sprintf("&this: %v\n", func() string {
+		if b.PtrToThisType != nil {
+			return b.PtrToThisType.Name
+		} else {
+			return "none"
+		}
+	}())
+	return result
 }
 func (b BatiFace) String() string {
-	return "BatiFace Stringify!"
+	result := fmt.Sprintf("Type:\n%v\n", b.tipe)
+	result += fmt.Sprintf("Interface package path: %v\n", b.pkgpath)
+	return result
 }
 func (b Bati) String() string {
-	return "Bati Stringify!"
+	result := fmt.Sprintf("Interface:\n")
+	result += fmt.Sprintf("%v\n", b.iface)
+	result += fmt.Sprintf("\nType:\n")
+	result += fmt.Sprintf("%v\n", b.tipe)
+	return result
 }
 
 func (b *BatiDecoder) DecodeImethodSliceAt(base uint64) ([]BatiMethod, error) {
@@ -94,7 +108,8 @@ func (b *BatiDecoder) DecodeImethodSliceAt(base uint64) ([]BatiMethod, error) {
 	methods := make([]BatiMethod, 0)
 
 	// This is a slice!
-	// In other words, it should be a pointer to the backing data (an array), then
+	// In other words, it should be a pointer to the backing data (an array),
+	// then
 	// two uint64_t (the capacity and the size).
 
 	containingSection, err := b.findSectionForAddress(base)
@@ -104,7 +119,9 @@ func (b *BatiDecoder) DecodeImethodSliceAt(base uint64) ([]BatiMethod, error) {
 	containingSectionData, _ := containingSection.Data()
 	containingOffset := uint64(base) - containingSection.Addr
 
-	addressOfImethodSliceBacking := binary.LittleEndian.Uint64(containingSectionData[containingOffset:(containingOffset + 8)])
+	addressOfImethodSliceBacking := binary.LittleEndian.Uint64(
+		containingSectionData[containingOffset:(containingOffset + 8)],
+	)
 
 	if addressOfImethodSliceBacking == 0 {
 		if b.debug {
@@ -113,19 +130,25 @@ func (b *BatiDecoder) DecodeImethodSliceAt(base uint64) ([]BatiMethod, error) {
 		return methods, nil
 	}
 
-	numberOfImethods := binary.LittleEndian.Uint64(containingSectionData[containingOffset+8 : (containingOffset + 8 + 8)])
+	numberOfImethods := binary.LittleEndian.Uint64(
+		containingSectionData[containingOffset+8 : (containingOffset + 8 + 8)],
+	)
 
 	if b.debug {
 		fmt.Printf("Methods are at 0x%x!\n", addressOfImethodSliceBacking)
 		fmt.Printf("There are %v methods available!", numberOfImethods)
 	}
 
-	containingSection, err = b.findSectionForAddress(addressOfImethodSliceBacking)
+	containingSection, err = b.findSectionForAddress(
+		addressOfImethodSliceBacking,
+	)
 	containingSectionData, err = containingSection.Data()
 	for i := uint64(0); i < numberOfImethods; i++ {
 		nameOffAddress := uint64(i*8) + addressOfImethodSliceBacking
 		containingOffset := nameOffAddress - containingSection.Addr
-		nameOff := binary.LittleEndian.Uint32((containingSectionData[containingOffset : containingOffset+4]))
+		nameOff := binary.LittleEndian.Uint32(
+			(containingSectionData[containingOffset : containingOffset+4]),
+		)
 		methodName, err := b.stringFromStringOffset(rodataAddress, nameOff)
 		if err != nil && b.debug {
 			fmt.Printf("method name: %v\n", methodName)
@@ -165,58 +188,87 @@ func (b *BatiDecoder) DecodeTypeAt(base uint64) (BatiType, error) {
 
 	interfaceTypeTypeOffset := containingOffset
 
-	//interfaceIMethodOffset := interfaceTypeTypeOffset + sizeof_type + sizeof_name
+	// interfaceIMethodOffset := interfaceTypeTypeOffset + sizeof_type +
+	// sizeof_name
 
 	interfaceOffsetIterator := uint64(0)
-	// These are the fields of the _type as they exist in the binary (48 total bytes).
+	// These are the fields of the _type as they exist in the binary (48 total
+	// bytes).
 	// 1: size (8 bytes)
-	constructedBatiType.Size = binary.LittleEndian.Uint64(containingSectionData[interfaceTypeTypeOffset:(interfaceTypeTypeOffset + 8)])
+	constructedBatiType.Size = binary.LittleEndian.Uint64(
+		containingSectionData[interfaceTypeTypeOffset:(interfaceTypeTypeOffset + 8)],
+	)
 	interfaceOffsetIterator += 8
 	// 2: ptrdata (8 bytes)
-	constructedBatiType.PtrData = binary.LittleEndian.Uint64(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 8)])
+	constructedBatiType.PtrData = binary.LittleEndian.Uint64(
+		containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 8)],
+	)
 	interfaceOffsetIterator += 8
 	// 3: hash (4 bytes)
-	constructedBatiType.Hash = uint32(binary.LittleEndian.Uint32(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 4)]))
+	constructedBatiType.Hash = uint32(
+		binary.LittleEndian.Uint32(
+			containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 4)],
+		),
+	)
 	interfaceOffsetIterator += 4
 
 	// 4: tflag (1 byte)
-	constructedBatiType.Tflag = byte(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator)])
+	constructedBatiType.Tflag = byte(
+		containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator)],
+	)
 	interfaceOffsetIterator += 1
 
 	// 5: align (1 byte)
-	constructedBatiType.Align = byte(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator)])
+	constructedBatiType.Align = byte(
+		containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator)],
+	)
 	interfaceOffsetIterator += 1
 
 	// 6: fieldAlign (1 byte)
-	constructedBatiType.FieldAlign = byte(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator)])
+	constructedBatiType.FieldAlign = byte(
+		containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator)],
+	)
 	interfaceOffsetIterator += 1
 
 	// 7: kind (1 byte)
-	constructedBatiType.Kind = byte(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator)])
+	constructedBatiType.Kind = byte(
+		containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator)],
+	)
 	interfaceOffsetIterator += 1
 
 	// 8: comparison function (8 bytes)
-	constructedBatiType.ComparisonFunc = binary.LittleEndian.Uint64(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 8)])
+	constructedBatiType.ComparisonFunc = binary.LittleEndian.Uint64(
+		containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 8)],
+	)
 	interfaceOffsetIterator += 8
 
 	// 9: gcdata (8 bytes)
-	constructedBatiType.GcData = binary.LittleEndian.Uint64(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 8)])
+	constructedBatiType.GcData = binary.LittleEndian.Uint64(
+		containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 8)],
+	)
 	interfaceOffsetIterator += 8
 
 	// 10: name (4 bytes)
-	interfaceTypeName := binary.LittleEndian.Uint32(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 4)])
+	typeName := binary.LittleEndian.Uint32(
+		containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 4)],
+	)
 	interfaceOffsetIterator += 4
 
 	// Convert from a "name offset" to an actual string
-	constructedBatiType.Name, err = b.stringFromStringOffset(rodataAddress, interfaceTypeName)
+	constructedBatiType.Name, err = b.stringFromStringOffset(
+		rodataAddress,
+		typeName,
+	)
 	if err == nil {
 		if b.debug {
-			fmt.Printf("Interface name: %v\n", constructedBatiType.Name)
+			fmt.Printf("Type name: %v\n", constructedBatiType.Name)
 		}
 	}
 
 	// 11: ptrToThis (4 bytes)
-	PtrToThisTypeOffset := binary.LittleEndian.Uint32(containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 4)])
+	PtrToThisTypeOffset := binary.LittleEndian.Uint32(
+		containingSectionData[(interfaceTypeTypeOffset + interfaceOffsetIterator):(interfaceTypeTypeOffset + interfaceOffsetIterator + 4)],
+	)
 	interfaceOffsetIterator += 4
 
 	if PtrToThisTypeOffset != 0 {
@@ -224,7 +276,10 @@ func (b *BatiDecoder) DecodeTypeAt(base uint64) (BatiType, error) {
 		PtrToThisType, err := b.DecodeTypeAt(ptrToThisAddress)
 
 		if err != nil {
-			fmt.Printf("Warning: Could not decode a type at the type's pointer-to-this offset. Tried at 0x%x.\n", ptrToThisAddress)
+			fmt.Printf(
+				"Warning: Could not decode a type at the type's pointer-to-this offset. Tried at 0x%x.\n",
+				ptrToThisAddress,
+			)
 		} else {
 			constructedBatiType.PtrToThisType = &PtrToThisType
 			if b.debug {
@@ -236,29 +291,44 @@ func (b *BatiDecoder) DecodeTypeAt(base uint64) (BatiType, error) {
 	}
 
 	if interfaceOffsetIterator != SIZEOF_TYPE {
-		return BatiType{}, fmt.Errorf("Could not parse the _type field at 0x%x\n", base)
+		return BatiType{}, fmt.Errorf(
+			"Could not parse the _type field at 0x%x\n",
+			base,
+		)
 	}
 
 	b.typeTable[base] = &constructedBatiType
 	return constructedBatiType, nil
 }
 
-func (b *BatiDecoder) stringFromStringOffset(base uint64, offset uint32) (string, error) {
+func (b *BatiDecoder) stringFromStringOffset(
+	base uint64,
+	offset uint32,
+) (string, error) {
 	// Convert from an "offset" to an actual string
 	moduleOffset := runtime.NewBaseOffset(base)
 	stringAddress := moduleOffset.StringOff(offset)
 	return b.stringFromStringAddress(stringAddress)
 }
 
-func (b *BatiDecoder) stringFromStringAddress(string_address uint64) (string, error) {
-	sectionForStringAddress, err := b.findSectionForAddress(uint64(string_address))
+func (b *BatiDecoder) stringFromStringAddress(
+	string_address uint64,
+) (string, error) {
+	sectionForStringAddress, err := b.findSectionForAddress(
+		uint64(string_address),
+	)
 	if err == nil {
 		sectionForStringData, _ := sectionForStringAddress.Data()
 		sectionForStringDataOffset := string_address - sectionForStringAddress.Addr
-		stringString := runtime.NewString(&sectionForStringData[sectionForStringDataOffset])
+		stringString := runtime.NewString(
+			&sectionForStringData[sectionForStringDataOffset],
+		)
 
 		if b.debug {
-			fmt.Printf("stringFromStringAddress result: %v\n", stringString.ToString())
+			fmt.Printf(
+				"stringFromStringAddress result: %v\n",
+				stringString.ToString(),
+			)
 		}
 		return stringString.ToString(), nil
 	}
@@ -269,7 +339,28 @@ func (b *BatiDecoder) stringFromStringAddress(string_address uint64) (string, er
 func (b *BatiDecoder) DecodeItabAt(base uint64) (Bati, error) {
 	constructedBati := Bati{base, 0, nil, nil}
 
-	iface, err := b.DecodeInterfaceTypeAt(base)
+	containingSection, err := b.findSectionForAddress(base)
+	if err != nil {
+		return Bati{}, err
+	}
+	containingSectionData, _ := containingSection.Data()
+	containingOffset := base - containingSection.Addr
+
+	containingOffsetIterator := uint64(0)
+	addressOfInterface := binary.LittleEndian.Uint64(
+		containingSectionData[containingOffset+containingOffsetIterator : (containingOffset + containingOffsetIterator + 8)],
+	)
+	containingOffsetIterator += 8
+	addressOfType := binary.LittleEndian.Uint64(
+		containingSectionData[containingOffset+containingOffsetIterator : (containingOffset + containingOffsetIterator + 8)],
+	)
+
+	if b.debug {
+		fmt.Printf("Address of the Interface: %x\n", addressOfInterface)
+		fmt.Printf("Address of the Type: %x\n", addressOfType)
+	}
+
+	iface, err := b.DecodeInterfaceTypeAt(addressOfInterface)
 
 	if err != nil {
 		fmt.Printf("Could not parse an interface type at the base of a Itab\n")
@@ -277,46 +368,42 @@ func (b *BatiDecoder) DecodeItabAt(base uint64) (Bati, error) {
 	}
 	constructedBati.iface = &iface
 
+	tipe, err := b.DecodeTypeAt(addressOfType)
+	if err != nil {
+		fmt.Printf("Could not parse a type at the base of a Itab\n")
+		return Bati{base, 0, nil, nil}, err
+	}
+	constructedBati.tipe = &tipe
+
 	return constructedBati, nil
 
 }
 
-// Base here is actually a pointer to the interface.
 func (b *BatiDecoder) DecodeInterfaceTypeAt(base uint64) (BatiFace, error) {
 	constructedBatiFace := BatiFace{}
 
-	containingSection, err := b.findSectionForAddress(base)
-	if err != nil {
-		return BatiFace{}, err
-	}
-	containingSectionData, _ := containingSection.Data()
-	containingOffset := base - containingSection.Addr
-
-	addressOfInterface := binary.LittleEndian.Uint64(containingSectionData[containingOffset:(containingOffset + 8)])
-	if b.debug {
-		fmt.Printf("Address of the Interface: %x\n", addressOfInterface)
-	}
-
-	sectionContainingInterface, err := b.findSectionForAddress(addressOfInterface)
+	sectionContainingInterface, err := b.findSectionForAddress(base)
 	sectionContainingInterfaceData, err := sectionContainingInterface.Data()
-	sectionContainingInterfaceOffset := addressOfInterface - sectionContainingInterface.Addr
+	sectionContainingInterfaceOffset := base - sectionContainingInterface.Addr
 
-	addressOfInterfacePkgPathNameName := addressOfInterface + SIZEOF_TYPE
-	addressOfInterfaceIMethodSlice := addressOfInterface + SIZEOF_TYPE + 8
+	pkgPathNameName := base + SIZEOF_TYPE
+	iMethodSlice := base + SIZEOF_TYPE + 8
 
-	constructedBatiFace.tipe, err = b.DecodeTypeAt(uint64(addressOfInterface))
+	constructedBatiFace.tipe, err = b.DecodeTypeAt(uint64(base))
 	if err != nil {
 		return constructedBatiFace, err
 	}
 
-	sectionContainingInterfaceOffset = addressOfInterfacePkgPathNameName - sectionContainingInterface.Addr
-	pkgPathNameAddress := binary.LittleEndian.Uint64(sectionContainingInterfaceData[sectionContainingInterfaceOffset:(sectionContainingInterfaceOffset + 8)])
+	sectionContainingInterfaceOffset = pkgPathNameName - sectionContainingInterface.Addr
+	pkgPathNameAddress := binary.LittleEndian.Uint64(
+		sectionContainingInterfaceData[sectionContainingInterfaceOffset:(sectionContainingInterfaceOffset + 8)],
+	)
 	pkgName, err := b.stringFromStringAddress(pkgPathNameAddress)
 	if err == nil {
 		constructedBatiFace.pkgpath = pkgName
 	}
 
-	_, err = b.DecodeImethodSliceAt(addressOfInterfaceIMethodSlice)
+	_, err = b.DecodeImethodSliceAt(iMethodSlice)
 
 	return constructedBatiFace, nil
 }
@@ -336,7 +423,9 @@ func stringInBytes(bites []byte, start int) (string, bool) {
 	return "", false
 }
 
-func (b *BatiDecoder) nameForSection(section *elf.ELF64Section) (string, error) {
+func (b *BatiDecoder) nameForSection(
+	section *elf.ELF64Section,
+) (string, error) {
 	shstrtab, err := b.sourceElf.F.Sections64[b.sourceElf.F.Header64.Shstrndx].Data()
 	if err != nil {
 		return "", err
@@ -347,7 +436,9 @@ func (b *BatiDecoder) nameForSection(section *elf.ELF64Section) (string, error) 
 	return "", fmt.Errorf("No name for section.")
 }
 
-func (b *BatiDecoder) findSectionForAddress(base uint64) (*elf.ELF64Section, error) {
+func (b *BatiDecoder) findSectionForAddress(
+	base uint64,
+) (*elf.ELF64Section, error) {
 	for _, ss := range b.sourceElf.F.Sections64 {
 		if ss.Addr <= base && base < ss.Addr+ss.Size {
 			if b.debug {

@@ -42,7 +42,9 @@ func decodeVarint(storage *byte) (int, int) {
 func (n *Name) ToString() string {
 	// TODO: Support tag data!
 	storagePtr := unsafe.Pointer(n.storage)
-	varintSize, stringLength := decodeVarint((*byte)(unsafe.Pointer(uintptr(storagePtr) + uintptr(1))))
+	varintSize, stringLength := decodeVarint(
+		(*byte)(unsafe.Pointer(uintptr(storagePtr) + uintptr(1))),
+	)
 	result := make([]byte, stringLength)
 	for i := 0; i < stringLength; i++ {
 		result[i] = *(*byte)(unsafe.Pointer(uintptr(storagePtr) + uintptr(varintSize) + uintptr(i) + uintptr(1)))
